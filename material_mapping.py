@@ -1,6 +1,5 @@
 from pathlib import Path
 import json
-
 import pymel.core as pc
 
 # Returns the materials associated with the given shape node.
@@ -14,33 +13,22 @@ def get_materials(shape):
 # Returns the file path of a texture connected to a specific material channel.
 # Handles normal maps as a special case.
 def get_file(material, channel):
-    if channel != "normalCamera":
-        # General case: Retrieve file node for the specified channel.
-        file_nodes = material.attr(channel).listConnections(type="file")
-        if file_nodes:
-            return file_nodes[0].attr("fileTextureName").get()
-    # Special case: Normal map, accessed via a connected bump node.
-    bump_node = material.attr(channel).listConnections()[0]
-    normal_file_node = bump_node.listConnections(type="file")
-    return normal_file_node[0].attr("fileTextureName").get()
+    file_nodes = material.attr(channel).listConnections(type="file")
+    if file_nodes:
+        return file_nodes[0].attr("fileTextureName").get()
 
 # Creates a mapping of objects to their materials and texture file paths for specified channels.
 def get_object_to_material_map(object_list, channel_list):
-    # Initialize the object-to-material map.
     object_to_material_map = {}
     for obj in object_list:
-        # Get the shape node associated with the object.
         shape = obj.getShape()
-        # Retrieve the first material assigned to the shape.
-        material = get_materials(shape)[0]
-        
-        # Map texture file paths for each specified channel.
-        file_map = {}
-        for channel in channel_list:
-            print(channel)  # Debug: Print the current channel being processed.
-            file_map[channel] = get_file(material, channel)
-        
-        # Add the object and its texture file map to the dictionary.
+        if not shape:
+            continue
+        materials = get_materials(shape)
+        if not materials:
+            continue
+        material = materials[0]
+        file_map = {channel: get_file(material, channel) for channel in channel_list}
         object_to_material_map[obj.name()] = file_map
     return object_to_material_map
 
@@ -48,19 +36,69 @@ def get_object_to_material_map(object_list, channel_list):
 def get_selected_objects():
     return pc.ls(selection=True)
 
-# List of material channels to extract texture file paths from.
-channels = ["baseColor", "normalCamera", "metalness", "specularRoughness"]
-
-# Get the currently selected objects.
-objects = get_selected_objects()
-
-# Check if any objects are selected.
-if not objects:
-    raise RuntimeError("No objects selected. Please select at least one object.")
-
-# Generate the mapping and save it as a JSON file.
-object_to_material_map = get_object_to_material_map(objects, channels)
-
 # Save the result to a JSON file.
-output_path = Path(r"N:\GOLEMS_FATE\crew\Jan\Scripts\NachhilfeMitJochen\test.json")
-output_path.write_text(json.dumps(object_to_material_map))
+def save_to_json(data, path):
+    path = Path(path)
+    path.write_text(json.dumps(data, indent=4))
+
+# UI Function
+def create_ui():
+    # Close existing window if it exists.
+    if pc.window("exportUI", exists=True):
+        try:
+            pc.deleteUI("exportUI")
+        except RuntimeError:
+            pass  # Falls das Fenster bereits gelöscht wurde, keine Aktion nötig.
+
+    # Create a new window.
+    export_window = pc.window("exportUI", title="Export Material Info", widthHeight=(300, 400))
+    with pc.columnLayout(adjustableColumn=True):
+        pc.text(label="Select Channels:")
+        channel_checkboxes = {}
+        channels = ["baseColor", "opacity", "normalCamera", "metalness", "specularRoughness"]
+        
+        # Create checkboxes for each channel.
+        for channel in channels:
+            channel_checkboxes[channel] = pc.checkBox(label=channel, value=True)
+
+        pc.separator(height=10)
+        pc.text(label="Output File Path:")
+        output_path_field = pc.textField(text=str(Path.home() / "material_info.json"))
+
+        pc.separator(height=10)
+        pc.button(label="Export", command=lambda *args: export_data(channel_checkboxes, output_path_field))
+    
+    # Show the window.
+    pc.showWindow(export_window)
+
+
+# Export Function
+def export_data(channel_checkboxes, output_path_field):
+    selected_objects = get_selected_objects()
+    if not selected_objects:
+        pc.warning("No objects selected. Please select at least one object.")
+        return
+
+    # Get selected channels.
+    selected_channels = [channel for channel, checkbox in channel_checkboxes.items() if checkbox.getValue()]
+
+    if not selected_channels:
+        pc.warning("No channels selected. Please select at least one channel.")
+        return
+
+    # Get the output path.
+    output_path = pc.textField(output_path_field, query=True, text=True)
+    if not output_path:
+        pc.warning("No output path specified.")
+        return
+
+    # Generate the mapping and save to JSON.
+    try:
+        object_to_material_map = get_object_to_material_map(selected_objects, selected_channels)
+        save_to_json(object_to_material_map, output_path)
+        pc.confirmDialog(title="Success", message=f"Data exported to {output_path}", button=["OK"])
+    except Exception as e:
+        pc.error(f"Failed to export data: {e}")
+
+# Run the UI
+create_ui()
