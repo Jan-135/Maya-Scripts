@@ -20,21 +20,41 @@ def get_file(material, channel):
 # Creates a mapping of objects to their materials and texture file paths for specified channels.
 def get_object_to_material_map(object_list, channel_list):
     object_to_material_map = {}
+    used_shader = []
+    
     for obj in object_list:
         shape = obj.getShape()
         if not shape:
             continue
+        
         materials = get_materials(shape)
         if not materials:
             continue
-        material = materials[0]
-        file_map = {channel: get_file(material, channel) for channel in channel_list}
-        object_to_material_map[obj.name()] = file_map
+        
+        # Check if the material is already in the used_shader list
+        material = materials[0]  # Assuming you always want the first material
+        if material not in used_shader:
+            file_map = {channel: get_file(material, channel) for channel in channel_list}
+            object_to_material_map[obj.name()] = file_map
+            used_shader.append(material)  # Add to used_shader
+
     return object_to_material_map
 
-# Returns the currently selected objects in the Maya scene.
+
+# Returns the objects of the selected group in the Maya scene.
 def get_selected_objects():
-    return pc.ls(selection=True)
+    sel = pc.selected()
+    if not sel:
+        pc.warning("Please select top group.")
+        return
+    grp = sel[0]
+    all_transforms = [obj.getParent() for obj in grp.getChildren(ad=True, type="mesh") if not obj.intermediateObject.get()]
+    filtered_transforms = [obj for obj in all_transforms if obj.visibility.get()]
+    
+    return filtered_transforms
+
+
+
 
 # Save the result to a JSON file.
 def save_to_json(data, path):
@@ -63,7 +83,7 @@ def create_ui():
 
         pc.separator(height=10)
         pc.text(label="Output File Path:")
-        output_path_field = pc.textField(text=str(Path.home() / "material_info.json"))
+        output_path_field = pc.textField(text=r"N:\GOLEMS_FATE\material_info.json")
 
         pc.separator(height=10)
         pc.button(label="Export", command=lambda *args: export_data(channel_checkboxes, output_path_field))
